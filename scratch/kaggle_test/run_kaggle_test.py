@@ -19,10 +19,11 @@ def main():
 
     os.chdir("DexGraspNet2")
 
-    # 2. Create isolated virtual environment
+    # 2. Create isolated virtual environment using virtualenv
     venv_dir = "/tmp/custom_venv"
     print(f"Creating isolated virtual environment at {venv_dir}...")
-    run_cmd(f"python3 -m venv {venv_dir}")
+    run_cmd("pip install --quiet virtualenv")
+    run_cmd(f"virtualenv --quiet {venv_dir}")
 
     pip_bin = f"{venv_dir}/bin/pip"
     python_bin = f"{venv_dir}/bin/python"
