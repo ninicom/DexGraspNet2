@@ -24,27 +24,40 @@ def main():
     # 2. Set up isolated virtual environment directly on Kaggle
     venv_dir = "/tmp/dgn_kaggle_env"
     print(f"\n[1/5] Setting up dedicated virtual environment at {venv_dir}...")
-    run_cmd("pip install --quiet virtualenv")
-    run_cmd(f"virtualenv --quiet {venv_dir}")
+    run_cmd("pip install --quiet virtualenv ninja")
+    
+    # Prefer Python 3.10 or 3.11 if present, otherwise default python3
+    py310_path = subprocess.getoutput("which python3.10 || which python3.11").strip()
+    if py310_path and os.path.exists(py310_path):
+        print(f"Found Python binary: {py310_path}")
+        run_cmd(f"virtualenv --python={py310_path} --quiet {venv_dir}")
+    else:
+        run_cmd(f"virtualenv --quiet {venv_dir}")
 
     pip_bin = f"{venv_dir}/bin/pip"
     python_bin = f"{venv_dir}/bin/python"
 
-    print(f"Virtual environment Python version: {subprocess.getoutput(f'{python_bin} --version')}")
+    py_ver = subprocess.getoutput(f"{python_bin} -c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").strip()
+    print(f"Virtual environment Python version: {py_ver}")
 
     # 3. Install PyTorch & dependencies directly on Kaggle
     print("\n[2/5] Installing PyTorch and dependencies into Kaggle venv...")
-    run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt")
+    run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt ninja")
     run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
     run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
 
     # 4. Install PyTorch3D directly on Kaggle
     print("\n[3/5] Installing PyTorch3D into Kaggle venv...")
-    # Try prebuilt wheel link first, then source fallback
-    p3d_res = run_cmd(f"{pip_bin} install --quiet pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt240/download.html", check=False)
+    py_tag = f"py{py_ver.replace('.', '')}"
+    wheel_url = f"https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{py_tag}_cu121_pyt240/download.html"
+    print(f"Trying prebuilt wheel URL: {wheel_url}")
+    p3d_res = run_cmd(f"{pip_bin} install --quiet pytorch3d -f {wheel_url}", check=False)
+    
     if p3d_res.returncode != 0:
-        print("Prebuilt PyTorch3D wheel not found for current Python/CUDA version, building from PyTorch3D git source...")
-        run_cmd(f"{pip_bin} install --quiet 'git+https://github.com/facebookresearch/pytorch3d.git'")
+        print("Prebuilt PyTorch3D wheel not available for this version, building with nvcc / CUDA_HOME...")
+        os.environ["CUDA_HOME"] = "/usr/local/cuda"
+        os.environ["FORCE_CUDA"] = "1"
+        run_cmd(f"{pip_bin} install --quiet --no-build-isolation 'git+https://github.com/facebookresearch/pytorch3d.git'")
 
     # 5. Generate mock dataset directly on Kaggle
     print("\n[4/5] Generating 100% schema-compliant synthetic mock dataset directly on Kaggle...")
