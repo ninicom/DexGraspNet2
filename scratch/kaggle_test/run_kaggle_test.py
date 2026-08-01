@@ -11,7 +11,7 @@ def run_cmd(cmd):
         sys.exit(res.returncode)
 
 def main():
-    print("Starting Kaggle GPU Test for DexGraspNet2...")
+    print("Starting Kaggle GPU Test with isolated custom virtual environment...")
 
     # 1. Clone repository
     if not os.path.exists("DexGraspNet2"):
@@ -19,23 +19,34 @@ def main():
 
     os.chdir("DexGraspNet2")
 
-    # 2. Install lightweight dependencies
-    print("Installing python requirements...")
-    run_cmd("pip install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
-    print("Installing PyTorch3D...")
-    run_cmd("pip install --quiet 'git+https://github.com/facebookresearch/pytorch3d.git'")
+    # 2. Create isolated virtual environment
+    venv_dir = "/tmp/custom_venv"
+    print(f"Creating isolated virtual environment at {venv_dir}...")
+    run_cmd(f"python3 -m venv {venv_dir}")
 
-    # 3. Copy scratch test scripts into local workspace if needed
-    os.makedirs("scratch/kaggle_test", exist_ok=True)
+    pip_bin = f"{venv_dir}/bin/pip"
+    python_bin = f"{venv_dir}/bin/python"
+
+    # 3. Upgrade base packaging tools
+    print("Upgrading pip, setuptools, wheel in virtual environment...")
+    run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel")
+
+    # 4. Install dependencies in virtual environment
+    print("Installing PyTorch and dependencies into custom virtual environment...")
+    run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
+    run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
     
-    # 4. Generate mock dataset
-    print("Generating 100% schema-compliant synthetic mock dataset...")
-    run_cmd("python3 scratch/kaggle_test/generate_mock_data.py")
+    print("Installing PyTorch3D into custom virtual environment...")
+    run_cmd(f"{pip_bin} install --quiet 'git+https://github.com/facebookresearch/pytorch3d.git'")
 
-    # 5. Execute trial training
-    print("Executing trial training on Kaggle GPU (cuda:0)...")
-    run_cmd("python3 src/train.py --yaml scratch/kaggle_test/train_kaggle_test.yaml")
-    print("Kaggle GPU Trial Training completed successfully!")
+    # 5. Generate mock dataset
+    print("Generating 100% schema-compliant synthetic mock dataset...")
+    run_cmd(f"{python_bin} scratch/kaggle_test/generate_mock_data.py")
+
+    # 6. Execute trial training using isolated virtual environment python
+    print("Executing trial training on Kaggle GPU using custom virtual environment...")
+    run_cmd(f"{python_bin} src/train.py --yaml scratch/kaggle_test/train_kaggle_test.yaml")
+    print("Kaggle GPU Trial Training in custom venv completed successfully!")
 
 if __name__ == "__main__":
     main()

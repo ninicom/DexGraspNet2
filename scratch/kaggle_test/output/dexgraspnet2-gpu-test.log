@@ -1,0 +1,17 @@
+[{"stream_name":"stdout","time":0.732199274,"data":"Starting Kaggle GPU Test for DexGraspNet2...\n"}
+,{"stream_name":"stdout","time":0.732311725,"data":"===\u003e Executing: git clone https://github.com/ninicom/DexGraspNet2.git\n"}
+,{"stream_name":"stdout","time":2.382017295,"data":"Cloning into 'DexGraspNet2'...\n"}
+,{"stream_name":"stdout","time":2.382051829,"data":"\n"}
+,{"stream_name":"stdout","time":2.382070803,"data":"Installing python requirements...\n"}
+,{"stream_name":"stdout","time":2.382075185,"data":"===\u003e Executing: pip install --quiet easydict scipy Pillow pyyaml tqdm einops pytorch3d\n"}
+,{"stream_name":"stdout","time":5.41305805,"data":"ERROR: Could not find a version that satisfies the requirement pytorch3d (from versions: none)\n"}
+,{"stream_name":"stdout","time":5.413099586,"data":"ERROR: No matching distribution found for pytorch3d\n"}
+,{"stream_name":"stdout","time":5.413104509,"data":"\n"}
+,{"stream_name":"stdout","time":5.413108369,"data":"Command failed with code 1\n"}
+,{"stream_name":"stderr","time":7.440682946,"data":"/usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":7.440732684,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":7.702328654,"data":"/usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":7.702357272,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":8.435186709,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":9.645032036,"data":"[NbConvertApp] Writing 277792 bytes to __results__.html\n"}
+]
