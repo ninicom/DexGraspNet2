@@ -21,7 +21,9 @@ def main():
 
     # 2. Install lightweight dependencies
     print("Installing python requirements...")
-    run_cmd("pip install --quiet easydict scipy Pillow pyyaml tqdm einops pytorch3d")
+    run_cmd("pip install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
+    print("Installing PyTorch3D...")
+    run_cmd("pip install --quiet 'git+https://github.com/facebookresearch/pytorch3d.git'")
 
     # 3. Copy scratch test scripts into local workspace if needed
     os.makedirs("scratch/kaggle_test", exist_ok=True)
