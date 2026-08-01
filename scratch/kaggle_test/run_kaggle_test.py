@@ -37,7 +37,7 @@ def main():
         run_cmd(f"tar -xzf {saved_env_tar} -C /tmp/")
     else:
         print(f"\n[1/6] Setting up dedicated virtual environment at {venv_dir}...")
-        run_cmd("pip install --quiet virtualenv ninja")
+        run_cmd("pip install --quiet virtualenv")
         
         py310_path = subprocess.getoutput("which python3.10 || which python3.11").strip()
         if py310_path and os.path.exists(py310_path):
@@ -52,7 +52,7 @@ def main():
 
         # 3. Install PyTorch & base dependencies
         print("\n[2/6] Installing PyTorch and dependencies into Kaggle venv...")
-        run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt ninja")
+        run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt")
         run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
         run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
 
@@ -69,14 +69,19 @@ def main():
             os.environ["FORCE_CUDA"] = "1"
             run_cmd(f"{pip_bin} install --quiet --no-build-isolation 'git+https://github.com/facebookresearch/pytorch3d.git'")
 
-        # 5. Install MinkowskiEngine
+        # 5. Install MinkowskiEngine (Root-cause fix for CUDA 12 / PyTorch 2.x compilation)
         print("\n[4/6] Installing MinkowskiEngine from source on Kaggle GPU...")
-        run_cmd("apt-get update -y && apt-get install -y libopenblas-dev", check=False)
+        run_cmd("apt-get update -y && apt-get install -y libopenblas-dev build-essential", check=False)
         if not os.path.exists("/tmp/MinkowskiEngine"):
             run_cmd("git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine")
+        
         os.environ["CUDA_HOME"] = "/usr/local/cuda"
         os.environ["MAX_JOBS"] = "4"
-        run_cmd(f"cd /tmp/MinkowskiEngine && {python_bin} setup.py install --blas=openblas")
+        os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5 8.0 8.6"
+        
+        # Build without ninja isolation for setuptools stability
+        run_cmd(f"{pip_bin} uninstall -y ninja", check=False)
+        run_cmd(f"cd /tmp/MinkowskiEngine && {python_bin} setup.py install --blas=openblas --force_cuda")
 
         # Save compiled environment to Kaggle output (/kaggle/working) for instant future reuse
         print("\nSaving compiled environment to /kaggle/working/dgn_env_built.tar.gz for instant reuse in future runs...")
