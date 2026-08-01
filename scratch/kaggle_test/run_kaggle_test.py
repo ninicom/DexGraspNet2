@@ -23,7 +23,7 @@ def main():
 
     # 2. Set up isolated virtual environment directly on Kaggle
     venv_dir = "/tmp/dgn_kaggle_env"
-    print(f"\n[1/5] Setting up dedicated virtual environment at {venv_dir}...")
+    print(f"\n[1/6] Setting up dedicated virtual environment at {venv_dir}...")
     run_cmd("pip install --quiet virtualenv ninja")
     
     # Prefer Python 3.10 or 3.11 if present, otherwise default python3
@@ -40,14 +40,14 @@ def main():
     py_ver = subprocess.getoutput(f"{python_bin} -c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").strip()
     print(f"Virtual environment Python version: {py_ver}")
 
-    # 3. Install PyTorch & dependencies directly on Kaggle
-    print("\n[2/5] Installing PyTorch and dependencies into Kaggle venv...")
+    # 3. Install PyTorch & base dependencies
+    print("\n[2/6] Installing PyTorch and dependencies into Kaggle venv...")
     run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt ninja")
     run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
     run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
 
-    # 4. Install PyTorch3D directly on Kaggle
-    print("\n[3/5] Installing PyTorch3D into Kaggle venv...")
+    # 4. Install PyTorch3D
+    print("\n[3/6] Installing PyTorch3D into Kaggle venv...")
     py_tag = f"py{py_ver.replace('.', '')}"
     wheel_url = f"https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{py_tag}_cu121_pyt240/download.html"
     print(f"Trying prebuilt wheel URL: {wheel_url}")
@@ -59,12 +59,21 @@ def main():
         os.environ["FORCE_CUDA"] = "1"
         run_cmd(f"{pip_bin} install --quiet --no-build-isolation 'git+https://github.com/facebookresearch/pytorch3d.git'")
 
-    # 5. Generate mock dataset directly on Kaggle
-    print("\n[4/5] Generating 100% schema-compliant synthetic mock dataset directly on Kaggle...")
+    # 5. Install MinkowskiEngine directly on Kaggle GPU
+    print("\n[4/6] Installing MinkowskiEngine from source on Kaggle GPU...")
+    run_cmd("apt-get update -y && apt-get install -y libopenblas-dev", check=False)
+    if not os.path.exists("/tmp/MinkowskiEngine"):
+        run_cmd("git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine")
+    os.environ["CUDA_HOME"] = "/usr/local/cuda"
+    os.environ["MAX_JOBS"] = "4"
+    run_cmd(f"cd /tmp/MinkowskiEngine && {python_bin} setup.py install --blas=openblas")
+
+    # 6. Generate mock dataset
+    print("\n[5/6] Generating 100% schema-compliant synthetic mock dataset directly on Kaggle...")
     run_cmd(f"{python_bin} scratch/kaggle_test/generate_mock_data.py")
 
-    # 6. Execute trial training on Kaggle GPU
-    print("\n[5/5] Executing trial training on Kaggle GPU (cuda:0)...")
+    # 7. Execute trial training on Kaggle GPU
+    print("\n[6/6] Executing trial training on Kaggle GPU (cuda:0)...")
     run_cmd(f"{python_bin} src/train.py --yaml scratch/kaggle_test/train_kaggle_test.yaml")
 
     print("\n=========================================================")
