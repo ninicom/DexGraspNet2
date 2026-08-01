@@ -96,7 +96,7 @@ def main():
         if (it + 1) % config.save_every == 0:
             logger.save(dict(model=model.state_dict(), optimizer=optimizer.state_dict(), iter=it+1), it+1)
 
-        if it % config.val_every == 0:
+        if (it + 1) % config.val_every == 0:
             with torch.no_grad():
                 model.eval()
                 for split, loader in zip(config.val_split, val_loader):
