@@ -1,101 +1,189 @@
+"""Build, verify, train, and export the proven DexGraspNet2 Kaggle GPU env."""
+from __future__ import annotations
+
+import glob
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
 import subprocess
 import sys
-import os
-import glob
 
-def run_cmd(cmd, check=True):
-    print(f"===> Executing: {cmd}")
-    res = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    print(res.stdout)
-    if check and res.returncode != 0:
-        print(f"Command failed with exit code {res.returncode}")
-        sys.exit(res.returncode)
-    return res
 
-def main():
-    print("=========================================================")
-    print("      DEXGRASPNET2 KAGGLE DIRECT GPU PIPELINE TEST       ")
-    print("=========================================================")
+VENV_DIR = Path("/tmp/dgn_kaggle_env")
+BUILD_DIR = Path("/tmp/dgn_kaggle_build")
+OUTPUT_DIR = Path("/kaggle/working")
+ARCHIVE = OUTPUT_DIR / "dgn_env_built.tar.gz"
 
-    # 1. Clone repository on Kaggle
-    if not os.path.exists("DexGraspNet2"):
-        run_cmd("git clone https://github.com/ninicom/DexGraspNet2.git")
+
+def run(args: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    print("===> " + " ".join(str(arg) for arg in args), flush=True)
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    print(result.stdout, flush=True)
+    if check and result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, args)
+    return result
+
+
+def ensure_micromamba() -> Path:
+    micromamba = BUILD_DIR / "bin/micromamba"
+    if micromamba.exists():
+        return micromamba
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    run([
+        "bash", "-lc",
+        f"curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest "
+        f"| tar -xj -C {BUILD_DIR} bin/micromamba",
+    ])
+    return micromamba
+
+
+def configure_environment() -> Path:
+    python = VENV_DIR / "bin/python"
+    if not python.exists():
+        micromamba = ensure_micromamba()
+        run([
+            str(micromamba), "create", "-y", "-p", str(VENV_DIR),
+            "-c", "pytorch", "-c", "nvidia/label/cuda-11.7.1", "-c", "conda-forge",
+            "python=3.8", "pytorch=2.0.1", "pytorch-cuda=11.7",
+            "cuda-nvcc=11.7", "cuda-cudart-dev=11.7",
+            "libcublas-dev=11.10.3.66", "libcurand-dev=10.2.10.91",
+            "libcusolver-dev=11.4.0.1", "libcusparse-dev=11.7",
+            "mkl<2024.1", "mkl-include<2024.1", "pip", "ninja",
+        ])
+        run([
+            str(python), "-m", "pip", "install", "--no-cache-dir",
+            "setuptools<70", "numpy==1.23.5", "scipy==1.10.1",
+            "PyYAML==6.0.1", "tqdm==4.66.5", "einops==0.7.0",
+            "nflows==0.14", "diffusers==0.21.4", "huggingface-hub==0.19.4",
+            "easydict", "pillow", "pandas==2.0.3", "plotly==5.24.1",
+            "trimesh==4.5.3", "transforms3d==0.4.2", "urdf-parser-py",
+        ])
+
+        pytorch3d_package = BUILD_DIR / "pytorch3d-0.7.5-py38_cu117_pyt201.tar.bz2"
+        run([
+            "curl", "-L", "--fail", "-o", str(pytorch3d_package),
+            "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch3d/"
+            "linux-64/pytorch3d-0.7.5-py38_cu117_pyt201.tar.bz2",
+        ])
+        run([
+            str(micromamba), "install", "-y", "-p", str(VENV_DIR),
+            "-c", "pytorch", "-c", "conda-forge", str(pytorch3d_package),
+        ])
+
+    capability = subprocess.check_output([
+        str(python), "-c",
+        "import torch; assert torch.cuda.is_available(); "
+        "print('.'.join(map(str, torch.cuda.get_device_capability(0))))",
+    ], text=True).strip()
+    major, minor = (int(part) for part in capability.split("."))
+    arch = capability if (major, minor) <= (8, 6) else "8.6+PTX"
+    os.environ.update({
+        "CUDA_HOME": str(VENV_DIR),
+        "CUDACXX": str(VENV_DIR / "bin/nvcc"),
+        "TORCH_CUDA_ARCH_LIST": arch,
+        "MAX_JOBS": "2",
+        "WANDB_MODE": "disabled",
+        "PYTHONUNBUFFERED": "1",
+    })
+    return python
+
+
+def ensure_minkowski(python: Path) -> None:
+    probe = run([
+        str(python), "-c",
+        "import MinkowskiEngine as ME; print(ME.__version__)",
+    ], check=False)
+    if probe.returncode == 0:
+        return
+
+    source = BUILD_DIR / "MinkowskiEngine"
+    if source.exists():
+        shutil.rmtree(source)
+    run([
+        "git", "clone", "--depth", "1", "--branch", "v0.5.4",
+        "https://github.com/NVIDIA/MinkowskiEngine.git", str(source),
+    ])
+    spmm = source / "src/spmm.cu"
+    source_text = spmm.read_text(encoding="utf-8")
+    anchor = "#include <ATen/cuda/CUDAContext.h>"
+    if "#include <ATen/ATen.h>" not in source_text:
+        spmm.write_text(
+            source_text.replace(anchor, "#include <ATen/ATen.h>\n" + anchor, 1),
+            encoding="utf-8",
+        )
+    run([
+        str(python), "setup.py", "install", "--force_cuda", "--blas=mkl",
+        f"--blas_include_dirs={VENV_DIR / 'include'}",
+    ], cwd=source)
+
+
+def verify_gpu_stack(python: Path) -> dict[str, str]:
+    code = (
+        "import json,torch,pytorch3d,MinkowskiEngine as ME;"
+        "from pytorch3d.ops import knn_points;"
+        "a=torch.zeros((1,2,3),device='cuda');knn_points(a,a);"
+        "x=torch.ones((2,3),device='cuda');"
+        "c=torch.tensor([[0,0,0,0],[0,1,1,1]],dtype=torch.int32);"
+        "s=ME.SparseTensor(x,coordinates=c);assert s.F.is_cuda;"
+        "print(json.dumps({'python':__import__('sys').version.split()[0],"
+        "'torch':torch.__version__,'cuda':torch.version.cuda,"
+        "'gpu':torch.cuda.get_device_name(0),'pytorch3d':pytorch3d.__version__,"
+        "'minkowski':ME.__version__}))"
+    )
+    result = run([str(python), "-c", code])
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def main() -> None:
+    print("DEXGRASPNET2_KAGGLE_PIPELINE_START", flush=True)
+    if not Path("DexGraspNet2").exists():
+        run(["git", "clone", "https://github.com/ninicom/DexGraspNet2.git"])
     os.chdir("DexGraspNet2")
 
-    venv_dir = "/tmp/dgn_kaggle_env"
-    python_bin = f"{venv_dir}/bin/python"
+    saved_archives = sorted(glob.glob("/kaggle/input/**/dgn_env_built.tar.gz", recursive=True))
+    if saved_archives:
+        print(f"RESTORING_ENV {saved_archives[0]}", flush=True)
+        run(["tar", "-xzf", saved_archives[0], "-C", "/tmp"])
 
-    # 2. Check if pre-saved environment exists from previous Kaggle run output
-    saved_env_tar = None
-    input_tars = glob.glob("/kaggle/input/**/dgn_env_built.tar.gz", recursive=True)
-    if input_tars:
-        saved_env_tar = input_tars[0]
+    python = configure_environment()
+    ensure_minkowski(python)
+    versions = verify_gpu_stack(python)
 
-    if saved_env_tar and os.path.exists(saved_env_tar):
-        print(f"\n[1/6] Found pre-saved environment archive at {saved_env_tar}!")
-        print("Extracting environment in seconds (offline instant setup)...")
-        run_cmd(f"tar -xzf {saved_env_tar} -C /tmp/")
-    else:
-        print(f"\n[1/6] Setting up dedicated virtual environment at {venv_dir}...")
-        run_cmd("pip install --quiet virtualenv")
+    run([str(python), "scratch/kaggle_test/generate_mock_data.py"])
+    run([str(python), "src/train.py", "--yaml", "scratch/kaggle_test/train_kaggle_test.yaml"])
 
-        py310_path = subprocess.getoutput("which python3.10 || which python3.11").strip()
-        if py310_path and os.path.exists(py310_path):
-            print(f"Found Python binary: {py310_path}")
-            run_cmd(f"virtualenv --python={py310_path} --quiet {venv_dir}")
-        else:
-            run_cmd(f"virtualenv --quiet {venv_dir}")
+    print(f"PACKAGING_VERIFIED_ENV {ARCHIVE}", flush=True)
+    run(["tar", "-I", "gzip -1", "-cf", str(ARCHIVE), "-C", "/tmp", VENV_DIR.name])
+    manifest = {
+        "status": "verified",
+        "archive": ARCHIVE.name,
+        "archive_bytes": ARCHIVE.stat().st_size,
+        "archive_sha256": sha256(ARCHIVE),
+        "training_iterations": 5,
+        **versions,
+    }
+    (OUTPUT_DIR / "dgn_env_manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print("DEXGRASPNET2_KAGGLE_PIPELINE_OK " + json.dumps(manifest, sort_keys=True), flush=True)
 
-        pip_bin = f"{venv_dir}/bin/pip"
-        py_ver = subprocess.getoutput(f"{python_bin} -c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").strip()
-        print(f"Virtual environment Python version: {py_ver}")
-
-        # 3. Install PyTorch & base dependencies
-        print("\n[2/6] Installing PyTorch and dependencies into Kaggle venv...")
-        run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt")
-        run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
-        run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
-
-        # 4. Install PyTorch3D
-        print("\n[3/6] Installing PyTorch3D into Kaggle venv...")
-        py_tag = f"py{py_ver.replace('.', '')}"
-        wheel_url = f"https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{py_tag}_cu121_pyt240/download.html"
-        print(f"Trying prebuilt wheel URL: {wheel_url}")
-        p3d_res = run_cmd(f"{pip_bin} install --quiet pytorch3d -f {wheel_url}", check=False)
-
-        if p3d_res.returncode != 0:
-            print("Prebuilt PyTorch3D wheel not available for this version, building with nvcc / CUDA_HOME...")
-            os.environ["CUDA_HOME"] = "/usr/local/cuda"
-            os.environ["FORCE_CUDA"] = "1"
-            run_cmd(f"{pip_bin} install --quiet --no-build-isolation 'git+https://github.com/facebookresearch/pytorch3d.git'")
-
-        # 5. Install MinkowskiEngine
-        print("\n[4/6] Installing MinkowskiEngine from source on Kaggle GPU...")
-        run_cmd("apt-get update -y && apt-get install -y libopenblas-dev build-essential", check=False)
-        if not os.path.exists("/tmp/MinkowskiEngine"):
-            run_cmd("git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine")
-        
-        os.environ["CUDA_HOME"] = "/usr/local/cuda"
-        os.environ["MAX_JOBS"] = "4"
-        os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5 8.0 8.6"
-        run_cmd(f"{pip_bin} uninstall -y ninja", check=False)
-        run_cmd(f"cd /tmp/MinkowskiEngine && {python_bin} setup.py install --blas=openblas --force_cuda")
-
-        # Save compiled environment to Kaggle output (/kaggle/working) for instant future reuse
-        print("\nSaving compiled environment to /kaggle/working/dgn_env_built.tar.gz for instant reuse in future runs...")
-        run_cmd("tar -czf /kaggle/working/dgn_env_built.tar.gz -C /tmp dgn_kaggle_env")
-
-    # 6. Generate mock dataset
-    print("\n[5/6] Generating 100% schema-compliant synthetic mock dataset directly on Kaggle...")
-    run_cmd(f"{python_bin} scratch/kaggle_test/generate_mock_data.py")
-
-    # 7. Execute trial training on Kaggle GPU
-    print("\n[6/6] Executing trial training on Kaggle GPU (cuda:0)...")
-    run_cmd(f"{python_bin} src/train.py --yaml scratch/kaggle_test/train_kaggle_test.yaml")
-
-    print("\n=========================================================")
-    print("   KAGGLE DIRECT GPU PIPELINE TEST COMPLETED SUCCESSFULLY! ")
-    print("=========================================================")
 
 if __name__ == "__main__":
     main()

@@ -1,11 +1,16 @@
 import os
 from os.path import dirname, join, abspath
 import glob
+import json
 from datetime import datetime
 import yaml
 import torch
-import wandb
 from src.utils.config import to_dict
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 class Logger:
     def __init__(self, config: dict):
@@ -14,7 +19,12 @@ class Logger:
             config needs to have at least 'exp_name'
         """
         self.config = config
-        if config.exp_name != 'temp':
+        self.use_wandb = (
+            config.exp_name != 'temp'
+            and wandb is not None
+            and os.environ.get('WANDB_MODE', '').lower() != 'disabled'
+        )
+        if self.use_wandb:
             wandb.init(project='DexGraspNet2', 
                     name=config.exp_name, 
                     config=config)
@@ -38,7 +48,17 @@ class Logger:
             mode is used to distinguish train, val, ...
             step is the iteration number
         """
-        if self.config.exp_name != 'temp':
+        scalars = {
+            key: float(value.detach().cpu()) if torch.is_tensor(value) else float(value)
+            for key, value in dic.items()
+        }
+        print(
+            'DGN2_METRIC ' + json.dumps(
+                {'mode': mode, 'step': step, **scalars}, sort_keys=True
+            ),
+            flush=True,
+        )
+        if self.use_wandb:
             wandb.log({f'{mode}/{k}': v for k, v in dic.items()}, step=step)
     
     def save(self, dic: dict, step: int):

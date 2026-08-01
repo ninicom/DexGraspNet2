@@ -1,4 +1,4 @@
-batch_size: 2
+batch_size: 1
 ckpt: null
 data:
   camera: realsense
@@ -19,7 +19,7 @@ data:
   sample_total: 32
   scene_fraction: 1
   voxel_size: 0.005
-exp_name: test_kaggle_gpu
+exp_name: temp
 gpu: 0
 grad_clip: 10.0
 log_every: 1
@@ -36,13 +36,14 @@ val_split:
 seed: 42
 model:
   type: graspness_isa
-  backbone: pct
+  backbone: sparseconv
   backbone_parameters:
     pct:
       dropout: 0.0
       use_batch_norm: true
       use_flash_attn: false
-  dist_joint: 0
+    sparseconv: {}
+  dist_joint: 1
   joint_num: 16
   joint_scale: 1.0
   trans_scale: 10.0

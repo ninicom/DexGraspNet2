@@ -1,8 +1,6 @@
 import numpy as np
 import torch
 from torch import nn
-from pytorch3d.ops import sample_farthest_points, ball_query
-from pytorch3d import transforms as pttf
 from einops import rearrange, repeat
 import warnings
 
@@ -11,8 +9,11 @@ from src.network.condition import ConditionalTransform
 from src.utils.util import proper_svd, to_voxel_center
 from src.network.diffusion import MLPWrapper, GaussianDiffusion1D
 from src.utils.dataset import Loader
-from src.network.cvae import GraspCVAE
-from src.utils.vis_plotly import Vis
+
+
+def _pytorch3d_transforms():
+    from pytorch3d import transforms
+    return transforms
 
 class GraspnessSample(nn.Module):
     def __init__(self, config: dict):
@@ -44,6 +45,7 @@ class GraspnessSample(nn.Module):
             self.joint_mlp = ConditionalTransform(config.feature_dim, config.joint_num + 4 + 3)
         elif config.type == 'graspness_cvae':
             assert config.dist_joint
+            from src.network.cvae import GraspCVAE
             self.grasp_cvae = GraspCVAE(**config.cvae)
 
         if not config.dist_joint:
@@ -113,12 +115,16 @@ class GraspnessSample(nn.Module):
             if self.rot_type == 'svd':
                 rot = proper_svd(rot.reshape(-1, 3, 3)).reshape(-1, sample_num, 3, 3)
             elif self.rot_type == 'sixd':
+                pttf = _pytorch3d_transforms()
                 rot = pttf.rotation_6d_to_matrix(rot)
             elif self.rot_type == 'quat':
+                pttf = _pytorch3d_transforms()
                 rot = pttf.quaternion_to_matrix(rot)
             elif self.rot_type == 'aa':
+                pttf = _pytorch3d_transforms()
                 rot = pttf.axis_angle_to_matrix(rot)
             elif self.rot_type == 'euler':
+                pttf = _pytorch3d_transforms()
                 rot = pttf.euler_angles_to_matrix(rot, 'XYZ')
             rot = rot.reshape(-1, sample_num, 3, 3)
             log_prob = log_prob.reshape(-1, sample_num)
@@ -126,6 +132,7 @@ class GraspnessSample(nn.Module):
             assert sample_num == 1
             est = self.joint_mlp(feature)
             quat, euc = est[:, :4], est[:, 4:]
+            pttf = _pytorch3d_transforms()
             rot = pttf.quaternion_to_matrix(quat)
             rot, euc = rot[:, None], euc[:, None]
             log_prob = torch.zeros_like(euc[..., 0])
@@ -232,18 +239,23 @@ class GraspnessSample(nn.Module):
             if self.rot_type == 'svd':
                 rot_rep = rot.reshape(-1, 9)
             elif self.rot_type == 'sixd':
+                pttf = _pytorch3d_transforms()
                 rot_rep = pttf.matrix_to_rotation_6d(rot)
             elif self.rot_type == 'quat':
+                pttf = _pytorch3d_transforms()
                 rot_rep = pttf.matrix_to_quaternion(rot)
             elif self.rot_type == 'aa':
+                pttf = _pytorch3d_transforms()
                 rot_rep = pttf.matrix_to_axis_angle(rot)
             elif self.rot_type == 'euler':
+                pttf = _pytorch3d_transforms()
                 rot_rep = pttf.matrix_to_euler_angles(rot, 'XYZ')
             gt_goal = torch.cat([rot_rep, euc], dim=-1)
             loss_diffusion = self.diffusion(gt_goal, sel_point_feature)
         elif self.config.type == 'graspness_isa':
             est = self.joint_mlp(sel_point_feature)
             est_quat, est_euc = est[:, :4], est[:, 4:]
+            pttf = _pytorch3d_transforms()
             est_rot = pttf.quaternion_to_matrix(est_quat)
             loss_euc = (est_euc - euc).abs().mean(dim=-1).reshape(batch_size, -1).mean(dim=-1)
             loss_quat = pttf.so3_relative_angle(est_rot, rot, eps=1e-2).reshape(batch_size, -1).mean(dim=-1)
@@ -290,6 +302,7 @@ class GraspnessSample(nn.Module):
             indices = torch.randint(0, graspable.sum(), (k,), device=graspable.device)[None]
             seed_point = pc[graspable][indices[0]][None]
         else:
+            from pytorch3d.ops import sample_farthest_points
             seed_point, indices = sample_farthest_points(pc[graspable][None].contiguous(), K=k, random_start_point=True)
         return seed_point, indices
     
@@ -349,6 +362,7 @@ class GraspnessSample(nn.Module):
             else:
                 if near:
                     K = 1000
+                    from pytorch3d.ops import ball_query
                     graspable = graspness[i] >= graspness[i].sort(descending=True).values[int(graspness[i].size(0) * ratio)]
                     dists, idxs, nn = ball_query(pc_cuda[i, graspable][None], pc_cuda[i][None], radius=0.02, K=K)
                     graspness_around = torch.where(idxs.reshape(-1) != -1, graspness[i][idxs.reshape(-1)], torch.full_like(idxs.reshape(-1), np.log(1e-3)).float()).reshape(-1, K)

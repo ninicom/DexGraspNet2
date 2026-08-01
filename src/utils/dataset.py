@@ -8,17 +8,24 @@ from PIL import Image
 import scipy.io as scio
 import random
 import collections.abc as container_abcs
+import xml.etree.ElementTree as ET
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import MinkowskiEngine as ME
-from pytorch3d import transforms as pttf
 
 from src.utils.pc import depth_image_to_point_cloud, get_workspace_mask
 from src.utils.util import to_voxel_center
-from src.utils.pose_refine import PoseRefine
-from src.utils.vis_plotly import Vis
-from src.utils.robot_model import RobotModel
+
+
+def _joint_names_from_urdf(urdf_path: str) -> list[str]:
+    """Return movable joints in URDF document order without loading mesh/SDF code."""
+    root = ET.parse(urdf_path).getroot()
+    return [
+        joint.attrib['name']
+        for joint in root.findall('joint')
+        if joint.attrib.get('type') != 'fixed'
+    ]
 
 class Loader:
     # a simple wrapper for DataLoader which can get data infinitely
@@ -57,17 +64,20 @@ class GraspNetDataset(Dataset):
             test_similar=range(130, 160),
             test_novel=range(160, 190),
         )
-        self.scene_id = [f'scene_{str(x).zfill(4)}' for x in splits[split.split('-')[0]][::self.config.scene_fraction if is_train else 1]]
-        ann_id = range(1 if split == 'single' else 256)
+        split_name = split.split('-')[0]
+        self.scene_id = [f'scene_{str(x).zfill(4)}' for x in splits[split_name][::self.config.scene_fraction if is_train else 1]]
+        ann_id = range(1 if split_name == 'single' else 256)
         self.views = []
         for scene in self.scene_id:
             for i in ann_id:
                 self.views.append((scene, i))
         if config.robot == 'gripper': 
+            from src.utils.pose_refine import PoseRefine
             self.refiner = PoseRefine()
         else:
-            self.robot_model = RobotModel(os.path.join('robot_models', 'urdf', config.robot + '.urdf'), os.path.join('robot_models', 'meta', config.robot, 'meta.yaml'))
-            self.joint_names = self.robot_model.joint_names
+            self.joint_names = _joint_names_from_urdf(
+                os.path.join('robot_models', 'urdf', config.robot + '.urdf')
+            )
         self.cates = ['orig']
         if is_train:
             if split.split('-')[1] == 'part':
@@ -331,4 +341,3 @@ def minkowski_collate_fn(list_data):
     res = collate_fn_(list_data)
 
     return res
-

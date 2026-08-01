@@ -8,7 +8,19 @@ import torch
 import yaml
 
 from urdf_parser_py.urdf import Robot, Box, Mesh, Cylinder
-from torchprimitivesdf import box_sdf, transform_points_inverse, fixed_transform_points_inverse
+try:
+    from torchprimitivesdf import (
+        box_sdf,
+        transform_points_inverse,
+        fixed_transform_points_inverse,
+    )
+except ImportError:
+    def _missing_torchprimitivesdf(*_args, **_kwargs):
+        raise RuntimeError('torchprimitivesdf is required for RobotModel distance queries')
+
+    box_sdf = _missing_torchprimitivesdf
+    transform_points_inverse = _missing_torchprimitivesdf
+    fixed_transform_points_inverse = _missing_torchprimitivesdf
 import pytorch3d.structures
 import pytorch3d.ops
 import plotly.graph_objects as go

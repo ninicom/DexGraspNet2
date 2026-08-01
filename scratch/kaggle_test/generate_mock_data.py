@@ -47,25 +47,27 @@ def generate_mock_dataset(base_dir="data_test"):
     grasps_path = os.path.join(base_dir, "dex_grasps_new", scene_id, robot)
     os.makedirs(grasps_path, exist_ok=True)
 
-    # LEAP hand joint names from robot model / urdf
+    # LEAP hand movable joint names from robot_models/urdf/leap_hand.urdf.
     joint_names = [
-        "mcp_joint", "pip", "dip", "fingertip",
-        "mcp_joint_2", "pip_2", "dip_2", "fingertip_2",
-        "mcp_joint_3", "pip_3", "dip_3", "fingertip_3",
-        "thumb_mcp", "thumb_pip", "thumb_dip", "thumb_fingertip"
+        "j12", "j13", "j14", "j15",
+        "j0", "j1", "j2", "j3",
+        "j8", "j9", "j10", "j11",
+        "j4", "j5", "j6", "j7",
     ]
 
     sample_total = 64
+    grasp_points = np.random.uniform(-0.05, 0.05, size=(sample_total, 3)).astype(np.float32)
+    grasp_points[:, 2] = 1.2
     grasps_data = {
         "rotation": np.tile(np.eye(3, dtype=np.float32)[None, :, :], (sample_total, 1, 1)),
-        "translation": np.random.uniform(-0.1, 0.1, size=(sample_total, 3)).astype(np.float32),
-        "point": np.random.uniform(-0.1, 0.1, size=(sample_total, 3)).astype(np.float32),
+        "translation": grasp_points.copy(),
+        "point": grasp_points,
     }
 
     for name in joint_names:
         grasps_data[name] = np.zeros((sample_total,), dtype=np.float32)
 
-    np.save(os.path.join(grasps_path, "grasp_0.npy"), grasps_data)
+    np.savez(os.path.join(grasps_path, "grasp_0.npz"), **grasps_data)
     print(f"Synthetic dataset generated successfully at '{base_dir}'!")
 
 if __name__ == "__main__":
