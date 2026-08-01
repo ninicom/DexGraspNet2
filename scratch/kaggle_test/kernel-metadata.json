@@ -1,0 +1,15 @@
+{
+  "id": "niniflo/dexgraspnet2-gpu-test",
+  "title": "DexGraspNet2 GPU Test",
+  "code_file": "run_kaggle_test.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

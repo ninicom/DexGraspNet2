@@ -2,6 +2,10 @@ batch_size: 8
 ckpt: null
 data:
   camera: realsense
+  data_root: data
+  scenes_dir: null
+  graspness_dir: null
+  grasps_dir: null
   fraction: 1
   grasp_data: poses_gn
   graspness_data: dex_graspness_new

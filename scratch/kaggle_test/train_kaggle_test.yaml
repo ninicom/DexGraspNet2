@@ -1,0 +1,55 @@
+batch_size: 2
+ckpt: null
+data:
+  camera: realsense
+  data_root: data_test
+  scenes_dir: data_test/scenes
+  graspness_dir: data_test/dex_graspness_new
+  grasps_dir: data_test/dex_grasps_new
+  fraction: 1
+  grasp_data: poses_gn
+  graspness_data: dex_graspness_new
+  k: 16
+  max_point_dis: 0.05
+  num_points: 2000
+  rand_angle: 0
+  render: 1
+  resample: 1
+  robot: leap_hand
+  sample_total: 32
+  scene_fraction: 1
+  voxel_size: 0.005
+exp_name: test_kaggle_gpu
+gpu: 0
+grad_clip: 10.0
+log_every: 1
+lr: 0.001
+lr_min: 1.0e-07
+max_iter: 5
+save_every: 10
+val_every: 10
+val_num: 1
+num_workers: 0
+train_split: single-orig
+val_split:
+- single-orig
+seed: 42
+model:
+  type: graspness_isa
+  backbone: pct
+  backbone_parameters:
+    pct:
+      dropout: 0.0
+      use_batch_norm: true
+      use_flash_attn: false
+  dist_joint: 0
+  joint_num: 16
+  joint_scale: 1.0
+  trans_scale: 10.0
+  feature_dim: 128
+  weight:
+    objectness: 1.0
+    graspness: 1.0
+    euc: 1.0
+    quat: 1.0
+    joint: 1.0

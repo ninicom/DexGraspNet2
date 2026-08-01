@@ -72,10 +72,24 @@ class GraspNetDataset(Dataset):
         if is_train:
             if split.split('-')[1] == 'part':
                 self.cates += ['part']
-    
+
+        # Configurable dataset component paths
+        self.data_root = getattr(self.config, 'data_root', 'data') or 'data'
+        self.scenes_dir = getattr(self.config, 'scenes_dir', None) or os.path.join(self.data_root, 'scenes')
+
+        frac_suffix = '' if self.config.fraction == 1 else f'_{self.config.fraction}'
+        default_graspness_name = getattr(self.config, 'graspness_data', 'dex_graspness_new') + frac_suffix
+        self.graspness_dir = getattr(self.config, 'graspness_dir', None) or os.path.join(self.data_root, default_graspness_name)
+
+        if self.config.robot == 'gripper':
+            default_grasps_name = 'gripper_grasps'
+        else:
+            default_grasps_name = 'dex_grasps_new' + frac_suffix
+        self.grasps_dir = getattr(self.config, 'grasps_dir', None) or os.path.join(self.data_root, default_grasps_name)
+
     def __len__(self):
         return 100000 if self.is_train else len(self.views)
-    
+
     def __getitem__(self, dataset_idx: int):
         cate = random.choice(self.cates)
         if cate == 'orig':
@@ -92,7 +106,7 @@ class GraspNetDataset(Dataset):
             suffix = '_gt' if self.config.render else ''
 
             # loading
-            path = os.path.join('data', 'scenes', scene, self.config.camera)
+            path = os.path.join(self.scenes_dir, scene, self.config.camera)
             depth = np.array(Image.open(os.path.join(path, 'depth'+suffix, str_view + '.png')))
             seg = np.array(Image.open(os.path.join(path, 'label'+suffix, str_view + '.png')))
             try:
@@ -134,8 +148,7 @@ class GraspNetDataset(Dataset):
                     ret_dict['edge'] = edge[mask][idxs]
                 return ret_dict
 
-            frac_suffix = '' if self.config.fraction == 1 else f'_{self.config.fraction}'
-            graspness_path = os.path.join('data', self.config.graspness_data+frac_suffix, scene, self.config.camera, str_view + '.npy')
+            graspness_path = os.path.join(self.graspness_dir, scene, self.config.camera, str_view + '.npy')
             if os.path.exists(graspness_path):
                 graspness = np.load(graspness_path)
                 graspness = graspness.reshape(-1)
@@ -148,8 +161,8 @@ class GraspNetDataset(Dataset):
 
             # load poses from world frame and transform to camera frame
             if self.config.robot == 'gripper':
-                poses_6d = np.load(os.path.join('data', 'gripper_grasps', scene, self.config.camera, 'poses.npy'))[::self.config.fraction]
-                grasp_points = np.load(os.path.join('data', 'gripper_grasps', scene, self.config.camera, 'points.npy'))[::self.config.fraction]
+                poses_6d = np.load(os.path.join(self.grasps_dir, scene, self.config.camera, 'poses.npy'))[::self.config.fraction]
+                grasp_points = np.load(os.path.join(self.grasps_dir, scene, self.config.camera, 'points.npy'))[::self.config.fraction]
 
                 assert self.config.sample_total >= self.config.k
                 if self.config.resample:
@@ -176,16 +189,15 @@ class GraspNetDataset(Dataset):
                 trans = poses_6d[:, -4:-1]
 
             else:
-                data_root = 'data'
                 assert self.config.resample
-                grasp_files = os.listdir(os.path.join(data_root, 'dex_grasps_new'+frac_suffix, scene, self.config.robot))
+                grasp_files = os.listdir(os.path.join(self.grasps_dir, scene, self.config.robot))
                 if len(grasp_files) == 0:
                     return self.__getitem__(random.randint(0, self.__len__() - 1))
                 rand_idxs = np.random.randint(0, len(grasp_files), self.config.sample_total)
                 samples = []
                 for i, f in enumerate(grasp_files):
                     num = (rand_idxs == i).sum()
-                    grasps = np.load(os.path.join(data_root, 'dex_grasps_new'+frac_suffix, scene, self.config.robot, f))
+                    grasps = np.load(os.path.join(self.grasps_dir, scene, self.config.robot, f))
                     sel_idxs = np.random.choice(len(grasps['point']), num, replace=True)
                     samples.append({k: grasps[k][sel_idxs] for k in grasps.keys()})
                 permute = np.random.permutation(self.config.sample_total)
