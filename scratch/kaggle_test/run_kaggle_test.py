@@ -25,18 +25,18 @@ def main():
     venv_dir = "/tmp/dgn_kaggle_env"
     python_bin = f"{venv_dir}/bin/python"
 
-    # 2. Check if pre-saved environment exists from previous Kaggle run output
+    # 2. Check if pre-saved environment tarball exists from attached dataset
     saved_env_tar = None
-    input_tars = glob.glob("/kaggle/input/**/dgn_env_built.tar.gz", recursive=True)
+    input_tars = glob.glob("/kaggle/input/**/dgn_env*.tar.gz", recursive=True)
     if input_tars:
         saved_env_tar = input_tars[0]
 
     if saved_env_tar and os.path.exists(saved_env_tar):
-        print(f"\n[1/6] Found pre-saved environment archive at {saved_env_tar}!")
+        print(f"\n[1/5] Found pre-saved environment archive at {saved_env_tar}!")
         print("Extracting environment in seconds (offline instant setup)...")
         run_cmd(f"tar -xzf {saved_env_tar} -C /tmp/")
     else:
-        print(f"\n[1/6] Setting up dedicated virtual environment at {venv_dir}...")
+        print(f"\n[1/5] Setting up dedicated virtual environment at {venv_dir}...")
         run_cmd("pip install --quiet virtualenv")
         
         py310_path = subprocess.getoutput("which python3.10 || which python3.11").strip()
@@ -50,27 +50,23 @@ def main():
         py_ver = subprocess.getoutput(f"{python_bin} -c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')\"").strip()
         print(f"Virtual environment Python version: {py_ver}")
 
-        # 3. Install PyTorch & base dependencies
-        print("\n[2/6] Installing PyTorch and dependencies into Kaggle venv...")
+        # Check attached dataset for pre-downloaded wheels
+        dataset_wheels_dir = "/kaggle/input/dgn-env-wheels"
+        if not os.path.exists(dataset_wheels_dir):
+            matches = glob.glob("/kaggle/input/**/dgn-env-wheels*", recursive=True)
+            if matches:
+                dataset_wheels_dir = matches[0]
+
+        print(f"Found attached wheel dataset at: {dataset_wheels_dir}")
+
+        # Install wheels instantly from attached dataset
+        print("\n[2/5] Installing packages from attached wheel dataset...")
         run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt")
         run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
-        run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
+        run_cmd(f"{pip_bin} install --quiet --find-links {dataset_wheels_dir} easydict scipy Pillow pyyaml tqdm einops fvcore iopath pytorch3d")
 
-        # 4. Install PyTorch3D
-        print("\n[3/6] Installing PyTorch3D into Kaggle venv...")
-        py_tag = f"py{py_ver.replace('.', '')}"
-        wheel_url = f"https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{py_tag}_cu121_pyt240/download.html"
-        print(f"Trying prebuilt wheel URL: {wheel_url}")
-        p3d_res = run_cmd(f"{pip_bin} install --quiet pytorch3d -f {wheel_url}", check=False)
-        
-        if p3d_res.returncode != 0:
-            print("Prebuilt PyTorch3D wheel not available for this version, building with nvcc / CUDA_HOME...")
-            os.environ["CUDA_HOME"] = "/usr/local/cuda"
-            os.environ["FORCE_CUDA"] = "1"
-            run_cmd(f"{pip_bin} install --quiet --no-build-isolation 'git+https://github.com/facebookresearch/pytorch3d.git'")
-
-        # 5. Install MinkowskiEngine (Root-cause fix for CUDA 12 / PyTorch 2.x compilation)
-        print("\n[4/6] Installing MinkowskiEngine from source on Kaggle GPU...")
+        # Install MinkowskiEngine
+        print("\n[3/5] Installing MinkowskiEngine from source on Kaggle GPU...")
         run_cmd("apt-get update -y && apt-get install -y libopenblas-dev build-essential", check=False)
         if not os.path.exists("/tmp/MinkowskiEngine"):
             run_cmd("git clone https://github.com/NVIDIA/MinkowskiEngine.git /tmp/MinkowskiEngine")
@@ -79,20 +75,18 @@ def main():
         os.environ["MAX_JOBS"] = "4"
         os.environ["TORCH_CUDA_ARCH_LIST"] = "7.5 8.0 8.6"
         
-        # Build without ninja isolation for setuptools stability
-        run_cmd(f"{pip_bin} uninstall -y ninja", check=False)
         run_cmd(f"cd /tmp/MinkowskiEngine && {python_bin} setup.py install --blas=openblas --force_cuda")
 
-        # Save compiled environment to Kaggle output (/kaggle/working) for instant future reuse
-        print("\nSaving compiled environment to /kaggle/working/dgn_env_built.tar.gz for instant reuse in future runs...")
+        # Save compiled environment to Kaggle output for instant reuse
+        print("\nSaving compiled environment to /kaggle/working/dgn_env_built.tar.gz for instant reuse...")
         run_cmd("tar -czf /kaggle/working/dgn_env_built.tar.gz -C /tmp dgn_kaggle_env")
 
-    # 6. Generate mock dataset
-    print("\n[5/6] Generating 100% schema-compliant synthetic mock dataset directly on Kaggle...")
+    # 3. Generate mock dataset
+    print("\n[4/5] Generating 100% schema-compliant synthetic mock dataset directly on Kaggle...")
     run_cmd(f"{python_bin} scratch/kaggle_test/generate_mock_data.py")
 
-    # 7. Execute trial training on Kaggle GPU
-    print("\n[6/6] Executing trial training on Kaggle GPU (cuda:0)...")
+    # 4. Execute trial training on Kaggle GPU
+    print("\n[5/5] Executing trial training on Kaggle GPU (cuda:0)...")
     run_cmd(f"{python_bin} src/train.py --yaml scratch/kaggle_test/train_kaggle_test.yaml")
 
     print("\n=========================================================")
