@@ -1,0 +1,9 @@
+{
+  "title": "DGN PyTorch3D Wheels Environment",
+  "id": "niniflo/dgn-env-wheels",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ]
+}
