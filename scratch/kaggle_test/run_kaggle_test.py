@@ -132,7 +132,7 @@ def verify_gpu_stack(python: Path) -> dict[str, str]:
         "from pytorch3d.ops import knn_points;"
         "a=torch.zeros((1,2,3),device='cuda');knn_points(a,a);"
         "x=torch.ones((2,3),device='cuda');"
-        "c=torch.tensor([[0,0,0,0],[0,1,1,1]],dtype=torch.int32);"
+        "c=torch.tensor([[0,0,0,0],[0,1,1,1]],dtype=torch.int32,device='cuda');"
         "s=ME.SparseTensor(x,coordinates=c);assert s.F.is_cuda;"
         "print(json.dumps({'python':__import__('sys').version.split()[0],"
         "'torch':torch.__version__,'cuda':torch.version.cuda,"
