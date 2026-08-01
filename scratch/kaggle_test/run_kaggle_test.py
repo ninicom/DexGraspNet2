@@ -22,7 +22,7 @@ def main():
     # 2. Create isolated virtual environment using virtualenv
     venv_dir = "/tmp/custom_venv"
     print(f"Creating isolated virtual environment at {venv_dir}...")
-    run_cmd("pip install --quiet virtualenv")
+    run_cmd("pip install --quiet virtualenv wrapt")
     run_cmd(f"virtualenv --quiet {venv_dir}")
 
     pip_bin = f"{venv_dir}/bin/pip"
@@ -30,15 +30,20 @@ def main():
 
     # 3. Upgrade base packaging tools
     print("Upgrading pip, setuptools, wheel in virtual environment...")
-    run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel")
+    run_cmd(f"{pip_bin} install --quiet --upgrade pip setuptools wheel wrapt")
 
     # 4. Install dependencies in virtual environment
     print("Installing PyTorch and dependencies into custom virtual environment...")
     run_cmd(f"{pip_bin} install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121")
     run_cmd(f"{pip_bin} install --quiet easydict scipy Pillow pyyaml tqdm einops fvcore iopath")
     
-    print("Installing PyTorch3D into custom virtual environment...")
-    run_cmd(f"{pip_bin} install --quiet 'git+https://github.com/facebookresearch/pytorch3d.git'")
+    print("Installing PyTorch3D prebuilt wheel into custom virtual environment...")
+    # Try installing prebuilt wheel
+    res = subprocess.run(f"{pip_bin} install --quiet pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py310_cu121_pyt240/download.html", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    print(res.stdout)
+    if res.returncode != 0:
+        print("Prebuilt wheel 1 failed, trying fallback index...")
+        run_cmd(f"{pip_bin} install --quiet pytorch3d --extra-index-url https://miovision.github.io/pytorch3d-wheels/cu121/")
 
     # 5. Generate mock dataset
     print("Generating 100% schema-compliant synthetic mock dataset...")
