@@ -13,7 +13,7 @@ data:
   max_point_dis: 0.05
   num_points: 2000
   rand_angle: 0
-  render: 1
+  render: 0
   resample: 1
   robot: leap_hand
   sample_total: 32
